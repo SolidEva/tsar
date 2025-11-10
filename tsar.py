@@ -34,6 +34,7 @@ def start_recorder(output_filename, device_name, cache_dir, username, binary_arg
                     "--disable-audio-cache",
                     "--disable-gapless",
                     "--backend", "pipe",
+                    "--enable-oauth",
                     "--passthrough" ]
 
     output_arg = ["--device", output_filename]
@@ -344,4 +345,3 @@ def main(output_dir, uri, cache_dir, username, empty_playlist, librespot_binary)
 
 if __name__ == "__main__":
     main()
-
