@@ -41,7 +41,7 @@ def start_recorder(output_filename, device_name, cache_dir, username, binary_arg
     command = [binary_arg, "-u", username] + generic_args + output_arg
     print("starting recorder with command: ")
     print(command)
-    recorder = subprocess.Popen(command, shell=True)
+    recorder = subprocess.Popen(command, shell=False)
 
     # let recorder warm up
     time.sleep(3)
@@ -344,3 +344,4 @@ def main(output_dir, uri, cache_dir, username, empty_playlist, librespot_binary)
 
 if __name__ == "__main__":
     main()
+
