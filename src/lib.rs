@@ -1,6 +1,8 @@
 use std::{path::PathBuf, time::Duration};
 use futures::stream::TryStreamExt;
 
+use id3::{Tag, TagLike, Frame, Version};
+use id3::frame::Content;
 use rspotify::{model::*, prelude::{BaseClient, OAuthClient}, AuthCodeSpotify, ClientError};
 use std::process::{Command, Child};
 use tempfile;
@@ -331,4 +333,23 @@ async fn convert_song(ogg_filename: &PathBuf, mp3_filename: &PathBuf) -> Result<
     cmd.status()?;
 
     Ok(())
+}
+
+/// Retrieve the metadata for a track and add it to the input mp3 file as id3 tags
+/// Renames the track to match its canonical name (artist - track .mp3)
+/// Returns path to the track
+fn set_song_metadata(track: &FullTrack, input_filename: &PathBuf) -> Result<PathBuf, TsarError> {
+
+    let tag = Tag::new();
+    tag.set_artist(track.artists);
+    tag.set_album(track.album.name);
+
+    let all_artists = track.artists;
+
+    // todo set_artist just takes a string, add a set_artists impl that takes a vector of string
+    // and combines them into a string seperated by NULL char like https://github.com/polyfloyd/rust-id3/commit/92c783b720721464f8cc8f2e02885907105a3ee7
+    let album = track.album;
+    album.name
+    let
+
 }
