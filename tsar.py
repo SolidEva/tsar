@@ -102,7 +102,6 @@ def find_playlist_tracks(spotify_api, playlist_uri):
 
     # since the api limits us to ~100 tracks at a time, concatonate our requests
     offset = max_track_limit
-    end = playlist_size
     while(offset < playlist_size):
         playlist = spotify_api.playlist_items(playlist_uri, limit=max_track_limit, offset=offset, additional_types=('track', ))
         tracks += playlist.get("items")
@@ -137,7 +136,6 @@ def find_album_tracks(spotify_api, album_uri):
 
     # since the api limits us to ~50 tracks at a time, concatonate our requests
     offset = max_track_limit
-    end = album_size
     while(offset < album_size):
         album = spotify_api.album_tracks(album_uri, limit=max_track_limit, offset=offset)
 
@@ -247,21 +245,27 @@ def set_song_metadata(track, input_filename):
     title = sanitize_filename(track.get("name"))
     return f"{artist} - {title}.mp3"
 
-def _remove_tracks_from_playlist(spotify_api, tracks, uri):
-    print(f"removing {len(tracks)} songs from playlist {uri}")
-    uris = []
-    for track in tracks:
-        uris.append(track.get("uri"))
-        spotify_api.playlist_remove_all_occurrences_of_items(uri, uris)
+def _remove_tracks_from_playlist(spotify_api, track_uris, playlist_uri):
+    print(f"removing {len(track_uris)} songs from playlist {playlist_uri}")
+    spotify_api.playlist_remove_all_occurrences_of_items(playlist_uri, track_uris)
 
-def empty_playlist(uri, username):
-    if not "playlist" in uri:
+def remove_tracks_from_playlist(track_uris, playlist_uri, username):
+    if "playlist" not in playlist_uri:
         raise ValueError("can only empty a playlist, please provide a playlist uri")
     spotify_api = start_api(username)
-    tracks = find_playlist_tracks(spotify_api, uri)
-    _remove_tracks_from_playlist(spotify_api, tracks, uri)
+    _remove_tracks_from_playlist(spotify_api, track_uris, playlist_uri)
 
-def run(output_dir, uri, cache_dir, username, empty_playlist, librespot_binary):
+def empty_playlist(playlist_uri, username):
+    if "playlist" not in playlist_uri:
+        raise ValueError("can only empty a playlist, please provide a playlist uri")
+    spotify_api = start_api(username)
+    tracks = find_playlist_tracks(spotify_api, playlist_uri)
+    track_uris = []
+    for track in tracks:
+        track_uris.append(track.get("uri"))
+    _remove_tracks_from_playlist(spotify_api, tracks, playlist_uri)
+
+def run(output_dir, uri, cache_dir, username, empty_playlist, librespot_binary, track_count_limit):
     ogg_filename = "/tmp/raw_file.ogg"
     mp3_filename = "/tmp/untagged_song.mp3"
     device_name = "_comp_"
@@ -293,7 +297,9 @@ def run(output_dir, uri, cache_dir, username, empty_playlist, librespot_binary):
     print(f"number of tracks = {len(tracks)}")
     if len(tracks) == 0:
         print("no tracks to process, quitting tsar...")
-        return
+        return None
+
+    completed_tracks = []
 
     for track in tracks:
         play_song(spotify_api, recorder_device_id, track.get("uri"))
@@ -305,6 +311,9 @@ def run(output_dir, uri, cache_dir, username, empty_playlist, librespot_binary):
         print(f"moving song to {out}")
         shutil.move(mp3_filename, out)
         cleanup_files()
+        completed_tracks.append(track.get("uri"))
+        if len(completed_tracks) >= track_count_limit:
+            break
 
     # cleanup
     finish(recorder)
@@ -314,19 +323,20 @@ def run(output_dir, uri, cache_dir, username, empty_playlist, librespot_binary):
 
     # validate that all tracks were properly downloaded
     filenames = next(os.walk(output_dir), (None, None, []))[2]  # [] if no file
-    if len(tracks) != len(filenames):
-        raise ValueError(f"""Expected {len(tracks)} songs, but found {len(filenames)}.
-                             expected list: {tracks}
+    if len(completed_tracks) != len(filenames):
+        raise ValueError(f"""Expected {len(completed_tracks)} songs, but found {len(filenames)}.
+                             expected list: {completed_tracks}
                              found list: {filenames}""")
 
     if empty_playlist:
         if "album" in uri:
             print(f"ignoring empty_playlist flag as we are working with an album")
         else:
-            _remove_tracks_from_playlist(spotify_api, tracks, uri)
+            _remove_tracks_from_playlist(spotify_api, completed_tracks, uri)
 
 
-    print(f"tsar finished. {len(tracks)} songs from playlist {uri}")
+    print(f"tsar finished. {len(completed_tracks)} songs from playlist {uri}")
+    return completed_tracks
 
 @click.command()
 @click.option("--output_dir", type=str, required=True, help="location to save the songs to")
