@@ -154,6 +154,27 @@ def find_album_tracks(spotify_api, album_uri):
 
     return tracks
 
+def find_show_tracks(spotify_api, show_uri):
+    tracks = []
+    max_track_limit = 50
+    show_name = spotify_api.show(show_uri).get("name")
+    show = spotify_api.show_episodes(show_uri, limit=max_track_limit)
+    show_size = show.get("total")
+    tracks += show.get("items")
+    print(f"show size is: {show_size}")
+
+    offset = max_track_limit
+    while(offset < show_size):
+        show = spotify_api.show_episodes(show_uri, limit=max_track_limit, offset=offset)
+        tracks += show.get("items")
+        offset += max_track_limit
+
+    if(show_size != len(tracks)):
+        raise ValueError(f"show has {show_size} tracks but only got {len(tracks)}")
+
+    return tracks, show_name
+
+
 def play_song(spotify_api, device_id, track_uri):
     trackSelectionList = []
     trackSelectionList.append(track_uri)
@@ -245,6 +266,45 @@ def set_song_metadata(track, input_filename):
     title = sanitize_filename(track.get("name"))
     return f"{artist} - {title}.mp3"
 
+def set_episode_metadata(episode, show_name, episode_num, input_filename):
+    def episode_art_url(episode):
+        images = episode.get("images")
+        for image in images:
+            if image.get("height") == 640:
+                return image.get("url")
+
+        print("could not find large episode art, trying smaller size")
+        for image in images:
+            if image.get("height") == 300:
+                return image.get("url")
+        raise ValueError(f"could not find suitable album art image in images: {images}")
+
+    if not episode.get("uri"):
+        raise ValueError("episode should be unwrapped first")
+
+    audiofile = eyed3.load(input_filename)
+    audiofile.tag.title = episode.get("name")
+    audiofile.tag.album = show_name
+    audiofile.tag.episode_num = episode_num
+    audiofile.tag.artist = show_name
+    audiofile.tag.album_artist = show_name
+
+    album_art = None
+    url = episode_art_url(episode)
+    with urllib.request.urlopen(url) as response:
+        album_art = response.read()
+
+    if album_art is None:
+        raise ValueError(f"unable to get album art from url {url}")
+
+    audiofile.tag.images.set(3, img_data=album_art, mime_type="image/jpeg")
+    audiofile.tag.save()
+
+    title = sanitize_filename(episode.get("name"))
+    return f"{title}.mp3"
+
+    
+
 def _remove_tracks_from_playlist(spotify_api, track_uris, playlist_uri):
     print(f"removing {len(track_uris)} songs from playlist {playlist_uri}")
     spotify_api.playlist_remove_all_occurrences_of_items(playlist_uri, track_uris)
@@ -290,9 +350,14 @@ def run(output_dir, uri, cache_dir, username, empty_playlist, librespot_binary, 
     if "playlist" in uri:
         # get tracklist from known playlist
         tracks = find_playlist_tracks(spotify_api, uri)
-    if "album" in uri:
+    elif "album" in uri:
         # get tracklist from known album
         tracks = find_album_tracks(spotify_api, uri)
+
+    elif "show" in uri:
+        tracks, show_name = find_show_tracks(spotify_api, uri)
+    else:
+        raise RuntimeError("Unknown uri type")
 
     print(f"number of tracks = {len(tracks)}")
     if len(tracks) == 0:
@@ -306,7 +371,10 @@ def run(output_dir, uri, cache_dir, username, empty_playlist, librespot_binary, 
         # process the song
         # recorder outputs to ogg_filename
         convert_song(ogg_filename, mp3_filename)
-        song_name = set_song_metadata(track, mp3_filename)
+        if "show" in uri:
+            song_name = set_episode_metadata(track, show_name, (len(completed_tracks) + 1), mp3_filename)
+        else:
+            song_name = set_song_metadata(track, mp3_filename)
         out = f"{output_dir}/{song_name}"
         print(f"moving song to {out}")
         shutil.move(mp3_filename, out)
